@@ -1,0 +1,20 @@
+[project]
+name = "movable-graph"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "Sergei Tsibikov",email = "tsibikov.sergei@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "plotly (>=6.1.2,<7.0.0)",
+    "dash (>=3.0.4,<4.0.0)",
+    "numpy (>=2.2.6,<3.0.0)",
+    "pandas (>=2.3.0,<3.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"

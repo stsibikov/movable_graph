@@ -1,0 +1,83 @@
+import dash
+from dash import dcc, html, Input, Output, State
+import plotly.graph_objs as go
+import numpy as np
+import pandas as pd
+
+x = np.linspace(0, 10, 100)
+y = np.sin(x)
+df = pd.DataFrame({'x': x, 'y': y})
+
+app = dash.Dash(__name__)
+
+initial_line_y = 0.5
+static_line_y = 0  # y-position of the static blue line
+
+app.layout = html.Div([
+    dcc.Store(id='line-y-store', data=initial_line_y),
+    dcc.Graph(
+        id='graph',
+        config={'editable': True}
+    ),
+    html.Div(id='line-position', style={'marginTop': 20})
+])
+
+def create_figure(line_y):
+    updated_y = df['y'] + line_y
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df['x'], y=updated_y, mode='lines', name='Data'))
+
+    fig.update_layout(
+        shapes=[
+            # Editable red draggable line
+            dict(
+                type='line',
+                x0=df['x'].min(),
+                x1=df['x'].max(),
+                y0=line_y,
+                y1=line_y,
+                line=dict(color='red', width=3),
+                editable=True
+            ),
+            # the share will be editable bc of global config
+            # # Static blue line (not editable)
+            # dict(
+            #     type='line',
+            #     x0=df['x'].min(),
+            #     x1=df['x'].max(),
+            #     y0=static_line_y,
+            #     y1=static_line_y,
+            #     line=dict(color='blue', width=3, dash='dash'),
+            #     editable=False
+            # )
+        ],
+        # dragmode='drawline',
+        margin=dict(l=40, r=40, t=40, b=40),
+        xaxis=dict(range=[df['x'].min(), df['x'].max()]),
+        yaxis=dict(range=[-2, 2]),
+        uirevision='fixed-ui',
+    )
+    return fig
+
+@app.callback(
+    Output('graph', 'figure'),
+    Output('line-position', 'children'),
+    Output('line-y-store', 'data'),
+    Input('graph', 'relayoutData'),
+    State('line-y-store', 'data')
+)
+def update_line(relayout_data, stored_line_y):
+    line_y = stored_line_y if stored_line_y is not None else initial_line_y
+
+    if relayout_data:
+        for key, value in relayout_data.items():
+            if key.startswith('shapes[0].y0'):
+                line_y = value
+            if key.startswith('shapes[0].y1'):
+                line_y = value
+
+    fig = create_figure(line_y)
+    return fig, f'Line Y-position: {line_y:.3f}', line_y
+
+if __name__ == '__main__':
+    app.run(debug=True)
