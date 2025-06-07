@@ -1,0 +1,15 @@
+Using version ^5.10.4 for nbformat
+
+Updating dependencies
+Resolving dependencies...
+
+Package operations: 6 installs, 0 updates, 0 removals
+
+  - Installing attrs (25.3.0)
+  - Installing rpds-py (0.25.1)
+  - Installing referencing (0.36.2)
+  - Installing jsonschema-specifications (2025.4.1)
+  - Installing jsonschema (4.24.0)
+  - Installing nbformat (5.10.4)
+
+Writing lock file
