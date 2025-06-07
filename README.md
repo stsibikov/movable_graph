@@ -1,0 +1,1 @@
+Plotly + Dash dashboards for the purpose of displaying data, applying some manual transformations, displaying the results of the change in data immediately, and then saving the changed data

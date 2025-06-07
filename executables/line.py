@@ -1,3 +1,13 @@
+'''
+Barebones prototype
+
+Editing data is done with movable line
+
+Limitations
+---
+The line can be moved horizontally without any restrictions -
+users may lose it. And its a little ugly
+'''
 import dash
 from dash import dcc, html, Input, Output, State
 import plotly.graph_objs as go
