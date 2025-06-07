@@ -5,13 +5,14 @@ import numpy as np
 import pandas as pd
 
 x = np.linspace(0, 10, 100)
-y = np.sin(x)
-df = pd.DataFrame({'x': x, 'y': y})
+target = np.sin(x)
+df = pd.DataFrame({'x': x, 'target': target})
+df['pred_init'] = df['target'].shift(20)
+df['pred_after_corr'] = df['pred_init']
 
 app = dash.Dash(__name__)
 
-initial_line_y = 0.5
-static_line_y = 0  # y-position of the static blue line
+initial_line_y = 0
 
 app.layout = html.Div([
     dcc.Store(id='line-y-store', data=initial_line_y),
@@ -23,13 +24,23 @@ app.layout = html.Div([
 ])
 
 def create_figure(line_y):
-    updated_y = df['y'] + line_y
+    df['pred_after_corr'] = df['pred_init'] + line_y
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df['x'], y=updated_y, mode='lines', name='Data'))
+
+    fig.add_trace(
+        go.Scatter(x=df['x'], y=df['target'], mode='lines', name='target', marker=dict(color='purple'))
+    )
+
+    fig.add_trace(
+        go.Scatter(x=df['x'], y=df['pred_init'], mode='lines', name='pred_init', marker=dict(color='green'), line=dict(dash='dot'))
+    )
+
+    fig.add_trace(
+        go.Scatter(x=df['x'], y=df['pred_after_corr'], mode='lines', name='pred_after_corr', marker=dict(color='blue'))
+    )
 
     fig.update_layout(
         shapes=[
-            # Editable red draggable line
             dict(
                 type='line',
                 x0=df['x'].min(),
