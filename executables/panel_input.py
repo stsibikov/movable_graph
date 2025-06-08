@@ -22,6 +22,8 @@ import logging
 import sys
 import webbrowser
 from pathlib import Path
+from threading import Timer
+from datetime import date
 
 host = '127.0.0.1'
 port = 8050
@@ -43,8 +45,15 @@ def get_logger():
 def get_data():
     path = project_dir / 'data' / 'dashboard_input.csv'
 
-    df = pd.read_csv(path)
+    df = pd.read_csv(path, parse_dates=['dt'])
+
+    # `pred` will be modified, `pred_init` will stay the same
+    # to act as a reference point
     df['pred_init'] = df['pred']
+
+    df['weekday'] = df['dt'].dt.day_name()
+
+    df['week'] = df['dt'].dt.isocalendar().week
     return df
 
 
@@ -77,14 +86,23 @@ app.layout = html.Div([
         placeholder="Select Segment(s)"
     ),
     html.Br(),
-    html.Label("Multiply entire 'pred' line by:"),
+    html.Label("Move entire line"),
     dcc.Input(id='change-mult-all', type='number', value=.0, step=0.1, debounce=True),
     html.Br(), html.Br(),
     html.Label("Multiply every second point of 'pred' line by:"),
     dcc.Input(id='change-mult-every-second', type='number', value=.0, step=0.1),
     html.Br(), html.Br(),
+    dcc.DatePickerSingle(
+        id='date-picker-single',
+        initial_visible_month=date.today(),
+        date=date.today(),
+        display_format='DD.MM.YY'
+    ),
+    html.Label("Move values on selected date"),
+    dcc.Input(id='change-mult-date', type='number', value=.0, step=0.1, debounce=True),
+    html.Br(), html.Br(),
     dcc.Graph(id='line-plot'),
-    html.Button("Export CSV", id="export-csv-btn")
+    html.Button("Export CSV", id="export-csv-btn"),
 ])
 
 @app.callback(
@@ -148,7 +166,7 @@ def update_data_and_plot(
     df.loc[affected_indexes, 'pred'] += df['pred_init'] * change_mult_all
     df.loc[affected_indexes[1::2], 'pred'] += df.loc[affected_indexes[1::2], 'pred_init'] * change_mult_every_second
 
-    # save updated dataframe to reflect changes between object changes
+    # save updated dataframe to reflect changes
     store_data['df'] = df.to_json(orient='split')
 
     return store_data, .0, .0, fig
@@ -169,7 +187,7 @@ def save_csv_to_disk(n_clicks, store_data):
 
 
 if __name__ == '__main__':
-    webbrowser.open_new(f"http://{host}:{port}")
+    Timer(3, webbrowser.open_new(f"http://{host}:{port}"))
     app.run(
         host=host,
         port=port,
