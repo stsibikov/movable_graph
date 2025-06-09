@@ -7,8 +7,7 @@ values of the base, unchangable column.
 
 Features
 ---
-User can choose data to display based on different criteria,
-and the data changes will work
+Choose to move entire line
 
 Limitations
 ---
@@ -21,14 +20,18 @@ import io
 import logging
 import sys
 import webbrowser
-from pathlib import Path
 from threading import Timer
+from pathlib import Path
 from datetime import date
+
+from movable_graph import to_list
 
 host = '127.0.0.1'
 port = 8050
 
 project_dir = Path(__file__).resolve().parent.parent
+
+display_cols = ['target', 'pred_init', 'pred']
 
 
 def get_logger():
@@ -62,14 +65,21 @@ df = get_data()
 
 objects = list(df['obj_id'].unique())
 segments = list(df['segment'].unique())
-
+weekdays = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+]
 
 app = dash.Dash(__name__)
 
 app.layout = html.Div([
-    dcc.Store(id='store-data', data={
-        'df': df.to_json(orient='split')
-    }),
+    dcc.Store(id='store-data', data=df.to_json(orient='split')),
+    dcc.Store(id='selected-base-indexes', data=[]),
     dcc.Dropdown(
         id='obj-id-dropdown',
         placeholder='Object ID(s)',
@@ -85,20 +95,26 @@ app.layout = html.Div([
         multi=True,
         placeholder="Select Segment(s)"
     ),
-    html.Br(),
+    html.Br(), html.Br(),
     html.Label("Move entire line"),
     dcc.Input(id='change-mult-all', type='number', value=.0, step=0.1, debounce=True),
     html.Br(), html.Br(),
-    html.Label("Multiply every second point of 'pred' line by:"),
-    dcc.Input(id='change-mult-every-second', type='number', value=.0, step=0.1),
+    html.Label("Move line on specific weekdays"),
+    dcc.Dropdown(
+        id='weekday-dropdown',
+        options=[{'label': wd, 'value': wd} for wd in weekdays],
+        multi=True,
+        placeholder="Select day(s) of week"
+    ),
+    dcc.Input(id='change-mult-weekdays', type='number', value=.0, step=0.1, debounce=True),
     html.Br(), html.Br(),
+    html.Label("Move values on selected date"),
     dcc.DatePickerSingle(
         id='date-picker-single',
         initial_visible_month=date.today(),
         date=date.today(),
         display_format='DD.MM.YY'
     ),
-    html.Label("Move values on selected date"),
     dcc.Input(id='change-mult-date', type='number', value=.0, step=0.1, debounce=True),
     html.Br(), html.Br(),
     dcc.Graph(id='line-plot'),
@@ -106,70 +122,167 @@ app.layout = html.Div([
 ])
 
 @app.callback(
-    Output('store-data', 'data'),
-    Output('change-mult-all', 'value'),
-    Output('change-mult-every-second', 'value'),
     Output('line-plot', 'figure'),
+    Output('selected-base-indexes', 'data'),
+    Output('change-mult-all', 'value'),
+    Output('change-mult-weekdays', 'value'),
+    Output('change-mult-date', 'value'),
     Input('obj-id-dropdown', 'value'),
     Input('segment-dropdown', 'value'),
-    Input('change-mult-all', 'value'),
-    Input('change-mult-every-second', 'value'),
     State('store-data', 'data'),
 )
-def update_data_and_plot(
+def update_plot_and_selected_indexes(
     selected_objs,
     selected_segments,
-    change_mult_all,
-    change_mult_every_second,
-    store_data
+    df
 ):
-    callback_context = dash.callback_context
-    trigger_id = callback_context.triggered[0]['prop_id'].split('.')[0] if callback_context.triggered else None
+    '''
+    Updates the unmodified parts of the plot, when user changes ids or segments
 
-    if trigger_id == 'obj-id-dropdown':
-        change_mult_all = .0
-        change_mult_every_second = .0
+    When switching, all modifiers are reset to zero
+    '''
+    selected_objs = to_list(selected_objs)
+    selected_segments = to_list(selected_segments)
 
     logger.debug(
-        f'{callback_context.triggered = }'
-        f'\n{selected_objs = }'
-        f'\n{selected_segments = }'
-        f'\n{change_mult_all = }'
-        f'\n{change_mult_every_second = }\n'
+        'update_plot_and_selected_indexes:'
+        f'\n\t{dash.callback_context.triggered = }'
+        f'\n\t{selected_objs = }'
+        f'\n\t{selected_segments = }'
     )
 
-    df = pd.read_json(io.StringIO(store_data['df']), orient='split')
-
-    dfs = df.copy()
+    # dataframe with current filters
+    df: pd.DataFrame = pd.read_json(io.StringIO(df), orient='split', convert_dates=['dt'])
 
     if selected_objs:
-        dfs = dfs[dfs['obj_id'].isin(selected_objs)]
+        df = df[df['obj_id'].isin(selected_objs)]
     if selected_segments:
-        dfs = dfs[dfs['segment'].isin(selected_segments)]
+        df = df[df['segment'].isin(selected_segments)]
 
-    # for updating df later
-    affected_indexes = dfs.index
+    # for updating df in `update_modifiable_col`
+    selected_base_indexes = df.index
 
-    dfs = dfs.groupby('dt', as_index=False)[['target', 'pred_init', 'pred']].sum()
+    df = df.groupby(['dt', 'weekday', 'week'], as_index=False)[display_cols].sum()
 
-    dfs['pred'] += dfs['pred_init'] * change_mult_all
-    dfs.loc[dfs.index[1::2], 'pred'] += dfs.loc[dfs.index[1::2], 'pred_init'] * change_mult_every_second
+    traces = []
 
-    trace_target = go.Scatter(x=dfs['dt'], y=dfs['target'], mode='lines', name='target')
-    trace_pred_init = go.Scatter(x=dfs['dt'], y=dfs['pred_init'], mode='lines', name='pred_init')
-    trace_pred = go.Scatter(x=dfs['dt'], y=dfs['pred'], mode='lines', name='pred')
+    for display_col in display_cols:
+        traces.append(
+            go.Scatter(
+                x=df['dt'], y=df[display_col], mode='lines', name=display_col,
+                # hovertemplate= (
+                #     'Date: %{x}<br>'
+                #     f'{display_col}:'
+                #     '%{y}<br>'
+                #     'Weekday: %{customdata[0]}<br>'
+                #     'Week: %{customdata[1]}<extra></extra>',
+                # ),
+                # customdata=df[['weekday', 'week']].values
+            )
+        )
 
-    fig = go.Figure(data=[trace_target, trace_pred_init, trace_pred])
-    fig.update_layout(title=f"Lines for {selected_objs}", xaxis_title='dt', yaxis_title='Value')
+    fig = go.Figure(data=traces)
+    fig.update_layout(title="Graph", xaxis_title='dt', yaxis_title='Value')
 
-    # apply changes to original df according to selection
-    df.loc[affected_indexes, 'pred'] += df['pred_init'] * change_mult_all
-    df.loc[affected_indexes[1::2], 'pred'] += df.loc[affected_indexes[1::2], 'pred_init'] * change_mult_every_second
+    return fig, selected_base_indexes, .0, .0, .0
 
-    # save updated dataframe to reflect changes
-    store_data['df'] = df.to_json(orient='split')
+@app.callback(
+    Output('store-data', 'data'),
+    Output('line-plot', 'figure', allow_duplicate=True),
+    Output('change-mult-all', 'value', allow_duplicate=True),
+    Output('change-mult-weekdays', 'value', allow_duplicate=True),
+    Output('change-mult-date', 'value', allow_duplicate=True),
+    Input('change-mult-all', 'value'),
+    Input('weekday-dropdown', 'value'),
+    Input('change-mult-weekdays', 'value'),
+    Input('date-picker-single', 'date'),
+    Input('change-mult-date', 'value'),
+    State('line-plot', 'figure'),
+    State('selected-base-indexes', 'data'),
+    State('store-data', 'data'),
+    prevent_initial_call=True,
+)
+def update_modifiable_col(
+    change_mult_all,
+    chosen_weekdays,
+    change_mult_weekdays,
+    chosen_date,
+    change_mult_date,
+    fig,
+    selected_base_indexes,
+    df,
+):
+    '''
+    Applies multipliers to displayed and stored data
+    '''
+    if not change_mult_all and not (chosen_weekdays and change_mult_weekdays) and not (chosen_date and change_mult_date):
+        return dash.no_update
 
-    return store_data, .0, .0, fig
+    df = pd.read_json(io.StringIO(df), orient='split', convert_dates=['dt'])
+
+    # no need to filter again - weve done that
+    # dfs is for display, df is for storing updated dataframe
+    dfs = df.loc[selected_base_indexes, :]
+
+    logger.debug(
+        'update_modifiable_col'
+        f'\n\t{dash.callback_context.triggered = }'
+        f'\n\t{change_mult_all = }'
+        f'\n\t{chosen_weekdays = }'
+        f'\n\t{change_mult_weekdays = }'
+        f'\n\t{chosen_date = }'
+        f'\n\t{change_mult_date = }'
+    )
+
+    dfs: pd.DataFrame = dfs.groupby(['dt', 'weekday', 'week'], as_index=False)[['pred_init', 'pred']].sum()
+
+    if change_mult_all:
+        dfs['pred'] += dfs['pred_init'] * change_mult_all
+        df.loc[selected_base_indexes, 'pred'] += df.loc[selected_base_indexes, 'pred_init'] * change_mult_all
+
+    if chosen_weekdays and change_mult_weekdays:
+        mask = dfs['weekday'].isin(chosen_weekdays)
+        dfs.loc[
+            mask, 'pred'
+        ] += dfs.loc[
+            mask, 'pred_init'
+        ] * change_mult_weekdays
+
+        mask = df.index.isin(selected_base_indexes) & df['weekday'].isin(chosen_weekdays)
+        df.loc[
+            mask, 'pred'
+        ] += df.loc[
+            mask, 'pred_init'
+        ] * change_mult_weekdays
+
+    if chosen_date and change_mult_date:
+        mask = dfs['dt'].dt.normalize() == chosen_date
+        dfs.loc[
+            mask, 'pred'
+        ] += dfs.loc[
+            mask, 'pred_init'
+        ] * change_mult_date
+
+        mask = df.index.isin(selected_base_indexes) & (df['dt'].dt.normalize() == chosen_date)
+        df.loc[
+            mask, 'pred'
+        ] += df.loc[
+            mask, 'pred_init'
+        ] * change_mult_date
+
+    # update only the modified graph trace
+    for trace in fig['data']:
+        if trace['name'] == 'pred':
+            # Update the trace data as needed
+            trace['y'] = dfs['pred']
+            break
+
+    # save updated dataframe to reflect changes when the user switches back
+    # or downloads the results
+    df = df.to_json(orient='split')
+
+    return df, fig, .0, .0, .0
+
 
 @app.callback(
     Output("export-csv-btn", "children"),
@@ -177,9 +290,9 @@ def update_data_and_plot(
     State("store-data", "data"),
     prevent_initial_call=True,
 )
-def save_csv_to_disk(n_clicks, store_data):
+def save_csv_to_disk(n_clicks, df):
     if n_clicks:
-        df = pd.read_json(io.StringIO(store_data['df']), orient='split')
+        df = pd.read_json(io.StringIO(df), orient='split', convert_dates=['dt'])
         file_path = project_dir / 'data' / 'panel_input_output.csv'
         df.to_csv(file_path, index=False)
         return 'Results saved'
@@ -187,7 +300,7 @@ def save_csv_to_disk(n_clicks, store_data):
 
 
 if __name__ == '__main__':
-    Timer(3, webbrowser.open_new(f"http://{host}:{port}"))
+    # Timer(3, webbrowser.open_new(f"http://{host}:{port}"))
     app.run(
         host=host,
         port=port,

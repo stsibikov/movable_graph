@@ -14,7 +14,6 @@ dependencies = [
     "pandas (>=2.3.0,<3.0.0)"
 ]
 
-
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
@@ -22,4 +21,3 @@ build-backend = "poetry.core.masonry.api"
 [tool.poetry.group.dev.dependencies]
 ipykernel = "^6.29.5"
 nbformat = "^5.10.4"
-
